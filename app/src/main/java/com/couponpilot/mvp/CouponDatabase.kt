@@ -22,9 +22,35 @@ interface CouponDao {
     suspend fun delete(id: Long)
 }
 
-@Database(entities = [Coupon::class], version = 1, exportSchema = false)
+@Dao
+interface LearningDao {
+    @Query("SELECT * FROM coupon_feedback ORDER BY createdAtEpochMillis DESC")
+    fun observeFeedback(): Flow<List<CouponFeedback>>
+
+    @Query("SELECT * FROM improvement_proposals ORDER BY createdAtEpochMillis DESC")
+    fun observeProposals(): Flow<List<ImprovementProposal>>
+
+    @Insert
+    suspend fun insertFeedback(feedback: CouponFeedback)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertProposal(proposal: ImprovementProposal)
+
+    @Query("SELECT COUNT(*) FROM improvement_proposals WHERE proposalType = :type AND rulePayload = :payload AND status IN ('PENDING', 'APPROVED')")
+    suspend fun existingProposalCount(type: String, payload: String): Int
+
+    @Query("UPDATE improvement_proposals SET status = :status, reviewedAtEpochMillis = :reviewedAt WHERE id = :id")
+    suspend fun reviewProposal(id: Long, status: String, reviewedAt: Long = System.currentTimeMillis())
+}
+
+@Database(
+    entities = [Coupon::class, CouponFeedback::class, ImprovementProposal::class],
+    version = 2,
+    exportSchema = false
+)
 abstract class CouponDatabase : RoomDatabase() {
     abstract fun couponDao(): CouponDao
+    abstract fun learningDao(): LearningDao
 
     companion object {
         @Volatile private var instance: CouponDatabase? = null
@@ -34,7 +60,7 @@ abstract class CouponDatabase : RoomDatabase() {
                 context.applicationContext,
                 CouponDatabase::class.java,
                 "coupon-pilot.db"
-            ).build().also { instance = it }
+            ).fallbackToDestructiveMigration().build().also { instance = it }
         }
     }
 }
